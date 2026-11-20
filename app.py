@@ -216,3 +216,34 @@ def poll_google_oauth() -> OAuthPollResponse:
     _pending_device_flows.pop("google", None)
     _store.set_state("google", "connected")
     return OAuthPollResponse(status="connected")
+
+
+@app.get(
+    "/gateways/google/calendar/upcoming",
+    dependencies=[Depends(require_api_key)],
+)
+def google_calendar_upcoming(max_results: int = 5) -> dict[str, Any]:
+    """Prochains événements Google Agenda, lus ici même.
+
+    Le jeton OAuth (refresh token) est stocké sur la machine de Gateways :
+    l'action s'exécute donc ici, et le Core l'appelle en HTTP au lieu
+    d'importer gateways.actions dans son propre processus (ce qui supposait
+    les deux services sur la même machine).
+
+    Renvoie les événements bruts et le texte prêt à dire. 409 si Google
+    n'est pas connecté ou si l'appel à Google échoue.
+    """
+    from gateways.actions import (
+        GatewayActionError,
+        fetch_upcoming_calendar_events,
+        format_events_for_response,
+    )
+
+    try:
+        events = fetch_upcoming_calendar_events(
+            token_store=_token_store,
+            max_results=max(1, min(int(max_results), 50)),
+        )
+    except GatewayActionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"events": events, "text": format_events_for_response(events)}
